@@ -1,6 +1,7 @@
 import ftplib
 import os
 import zipfile
+from tqdm import tqdm
 
 def is_directory(ftp, name):
     """Check if a given name is a directory."""
@@ -46,31 +47,43 @@ def download_file(ftp, remote_file_path, local_file_path):
         with zipfile.ZipFile(local_file_path, 'r') as zip_ref:
             zip_ref.extractall(os.path.dirname(local_file_path))
         os.remove(local_file_path)
-        print(f"\tExtracted and deleted {local_file_path}")
+        print(f"Extracted and deleted {local_file_path}")
 
-def traverse_and_download(ftp, remote_dir, local_base_dir):
+def traverse_and_collect_files(ftp, remote_dir):
     """
-    Recursively traverse the FTP directory tree and download files based on criteria.
+    Recursively traverse the FTP directory tree and collect files to download.
     """
+    files_to_download = []
     ftp.cwd(remote_dir)
     items = ftp.nlst()
 
     for item in items:
         if is_directory(ftp, item):
             # Recursively process subdirectories
-            traverse_and_download(ftp, item, local_base_dir)
+            files_to_download.extend(traverse_and_collect_files(ftp, item))
         else:
-            remote_file_path = f"{ftp.pwd()}/{item}"
-            if should_download_file(ftp, remote_file_path):
-                local_file_path = os.path.join(local_base_dir, remote_file_path.lstrip('/'))
-                download_file(ftp, remote_file_path, local_file_path)
+            if should_download_file(item):
+                remote_file_path = f"{ftp.pwd()}/{item}"
+                files_to_download.append(remote_file_path)
 
     ftp.cwd('..')
+    return files_to_download
 
-ftp_server = "ftp.ibge.gov.br"
-ftp_directory = '/Censos/Censo_Demografico_2022'
-local_base_dir = '../data/'
+def main():
+    ftp_server = "ftp.ibge.gov.br"
+    ftp_directory = '/Censos/Censo_Demografico_2022'
+    local_base_dir = '../data/'
 
-with ftplib.FTP(ftp_server) as ftp:
-    ftp.login()
-    traverse_and_download(ftp, ftp_directory, local_base_dir)
+    with ftplib.FTP(ftp_server) as ftp:
+        ftp.login()
+        files_to_download = traverse_and_collect_files(ftp, ftp_directory)
+
+        total_files = len(files_to_download)
+        print(f"Total files to download: {total_files}")
+
+        for remote_file_path in tqdm(files_to_download, desc="Downloading files", unit="file"):
+            local_file_path = os.path.join(local_base_dir, remote_file_path.lstrip('/'))
+            download_file(ftp, remote_file_path, local_file_path)
+
+if __name__ == "__main__":
+    main()
